@@ -1,0 +1,3 @@
+*.o
+/test-filter
+/xbox-snapback-filter

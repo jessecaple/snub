@@ -1,0 +1,9 @@
+# Grant the active desktop user access to the Elite Series 2 whose Bluetooth
+# address was detected by install.sh. USB already receives a desktop ACL.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Xbox Wireless Controller", ATTRS{uniq}=="@CONTROLLER_UNIQ@", TAG+="uaccess"
+
+# Steam's packaged udev rule grants hidraw access to Bluetooth Xbox product
+# 045e:0b22. Remove that access so Steam cannot bypass the evdev filter. Linux
+# does not expose the controller address to hidraw rules, so this match covers
+# this product ID. The virtual uinput controller has no hidraw node.
+ACTION=="add|change", SUBSYSTEM=="hidraw", KERNEL=="hidraw*", KERNELS=="*045E:0B22*", MODE:="0600", TAG-="uaccess"

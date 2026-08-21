@@ -1,0 +1,18 @@
+[Unit]
+Description=Xbox Elite Series 2 left-stick snapback filter
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=WAIT_FOR_DEVICE=1
+Environment=GATE_MS=13
+Environment=DEADZONE_PERCENT=6
+Environment=STRONG_PERCENT=70
+Environment=VERBOSE=0
+ExecStart=%h/.local/libexec/xbox-snapback-filter/run.sh
+Restart=always
+RestartSec=1
+TimeoutStopSec=3
+
+[Install]
+WantedBy=default.target
