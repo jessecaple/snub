@@ -1,0 +1,16 @@
+# Installed by snub's install.sh.
+
+# Let the active desktop user create the virtual controller. Steam's own udev
+# rules grant the same access.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
+
+# Steam's udev rule grants hidraw access to Bluetooth Xbox product 045e:0b22.
+# Remove it so Steam cannot read the controller directly and bypass the
+# filter. Linux does not expose the controller address to hidraw rules, so this
+# applies to every Bluetooth Elite Series 2. The virtual controller has no
+# hidraw node.
+ACTION=="add|change", SUBSYSTEM=="hidraw", KERNEL=="hidraw*", KERNELS=="*045E:0B22*", MODE:="0600", TAG-="uaccess"
+
+# Over Bluetooth, let the active desktop user read the Elite Series 2 with the
+# address detected by install.sh. USB already gets this access.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Xbox Wireless Controller", ATTRS{uniq}=="@CONTROLLER_UNIQ@", TAG+="uaccess"

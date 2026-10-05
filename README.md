@@ -1,96 +1,80 @@
-# Xbox Elite Series 2 snapback filter
+# SNUB
 
-This is an experimental Linux `evdev` to `uinput` filter for the measured
-left-stick snapback on this controller. It creates a virtual controller and
-exclusively captures the physical controller while running.
+Snapback Neutralizing Uinput Bridge: a Linux filter for left-stick snapback on
+the Xbox Elite Series 2 controller.
 
-The same symmetric filter is applied independently to left-stick X and Y, so
-it covers left-to-right, right-to-left, up-to-down, and down-to-up snapback.
+On a worn Elite 2, letting go of the left stick after a hard push can make it
+bounce past center and register a short flick the other way. SNUB reads the
+controller through evdev, holds those rebounds at center, and passes
+everything else to a virtual controller. It doesn't touch the controller's
+firmware, and stopping SNUB gives you the unfiltered controller back.
 
-The first test configuration uses:
+Both axes are filtered in both directions. A reversal that goes past 80% of
+the stick's travel passes immediately. A smaller one that follows a hard push
+is held at center until it settles or proves steady, for at most 120 ms.
 
-- a 13 ms opposite-direction confirmation gate;
-- a 6% center deadzone, chosen to cover the measured resting offset;
-- gate arming only after at least 70% stick deflection.
+It works over USB (`045e:0b00`) and Bluetooth (`045e:0b22`). I use it on Fedora
+with Steam. It's experimental.
 
-Fast sign crossings are classified using their sample-to-sample velocity,
-preserving the last direction across a brief center-zone crossing. A rebound
-below 80% is held at neutral until it settles. A deliberate reversal that
-continues beyond 80% is passed immediately rather than waiting for a fixed
-multi-frame window.
+## Try it
 
-It does not modify controller firmware. It can be run manually or installed as
-a per-user service after testing.
-
-## Build
+Stop the service if it's installed, close any game, connect the controller,
+and run:
 
 ```bash
-make test
-make
-```
-
-## Manual test
-
-Connect the Elite Series 2 over USB or Bluetooth, close any game, and run:
-
-```bash
+make test && make
 ./run.sh
 ```
 
-If opening the physical event device is denied, use:
+From a terminal it logs each filter decision. Ctrl-C stops it. If opening the
+controller is denied, run `sudo ./run.sh` or install the udev rule below.
 
-```bash
-sudo ./run.sh
-```
-
-Leave the filter running, start the game, and test the left stick. Press
-`Ctrl-C` in the terminal to restore the unfiltered physical controller.
-
-The test values can be overridden without editing code, for example:
-
-```bash
-GATE_MS=13 DEADZONE_PERCENT=6 ./run.sh
-```
-
-Rumble is intentionally not exposed by the virtual controller in this first
-version.
-
-## Permanent installation
-
-Run:
+## Install
 
 ```bash
 ./install.sh
 ```
 
-Connect the controller over Bluetooth before running the installer. It detects
-the controller's Bluetooth address and uses it only in the generated rule under
-`/etc/udev/rules.d`; the address is never written into this source directory.
-The installer then builds and tests the filter, installs its runtime under
-`~/.local/libexec`, enables a systemd user service, and cleans the build tree.
-The service starts with the desktop session, waits quietly while the controller
-is off, supports either USB or Bluetooth, and restarts after a disconnect. Turn
-the controller off and on once after installation so the generated rule applies
-to newly created device nodes.
+The installer builds and tests SNUB, copies it to `~/.local/libexec/snub`,
+installs a udev rule (this step uses sudo), and starts a systemd user service.
+The service waits for the controller and restarts after a disconnect.
 
-Useful commands:
+If you use Bluetooth, connect over Bluetooth before installing. Fedora doesn't
+give the desktop user access to the controller's Bluetooth event node, so the
+rule grants it for your controller's address. Turn the controller off and on
+once afterward.
 
 ```bash
-systemctl --user status xbox-snapback-filter.service
-journalctl --user -u xbox-snapback-filter.service
+systemctl --user status snub.service
+journalctl --user -u snub.service
 ./uninstall.sh
 ```
 
-## Bluetooth access
+## Settings
 
-Fedora currently classifies this controller's Bluetooth event node partly as a
-keyboard because its HID descriptor advertises a malformed keyboard-key
-bitmap. The filter exposes only the real controller-button range on its virtual
-device, allowing udev and Steam to recognize it as a joystick. Fedora does not
-grant the desktop user access to the physical event node by default. The
-included rule template matches the Bluetooth name and the unique address
-detected during installation. It is generated under `/etc/udev/rules.d/` to
-grant the active desktop user access without granting access to keyboards or
-other input devices. It also removes Steam's direct `hidraw` access to Bluetooth
-Xbox product `045e:0b22`; otherwise Steam could bypass the evdev filter. The
-virtual controller has no `hidraw` node and remains available normally.
+The installer creates `~/.config/snub/snub.conf`, which lists every tuning
+value with a short explanation. The defaults came from one worn controller, so
+yours may need different numbers. Watch `./run.sh` in a terminal while you
+test, edit the file, then run `systemctl --user restart snub.service`.
+Environment variables with the same names override the file, for example
+`GATE_MS=15 ./run.sh`.
+
+## Caveats
+
+- Steam loses direct access to every Bluetooth Elite Series 2 on the machine.
+  The udev rule removes Steam's hidraw access to `045e:0b22` so Steam can't
+  read around the filter. This stays in place until you uninstall, even when
+  SNUB isn't running. Steam still sees the filtered controller.
+- The udev rule also lets the logged-in desktop user write to `/dev/uinput`,
+  which any of their programs can use to create virtual input devices. Steam's
+  own udev rules already grant this.
+- While SNUB runs it grabs the physical controller, so games see only
+  "Filtered Xbox Elite Series 2".
+- The virtual controller has no rumble.
+- Only the left stick is filtered, and only the first Elite Series 2 found.
+- Bluetooth access is tied to one controller's address. Run `./install.sh`
+  again after pairing a different one.
+
+## License
+
+MIT

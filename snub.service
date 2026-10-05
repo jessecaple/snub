@@ -1,0 +1,14 @@
+[Unit]
+Description=SNUB snapback filter for the Xbox Elite Series 2
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=WAIT_FOR_DEVICE=1
+ExecStart=%h/.local/libexec/snub/run.sh
+Restart=always
+RestartSec=2
+TimeoutStopSec=3
+
+[Install]
+WantedBy=default.target

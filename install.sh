@@ -2,9 +2,11 @@
 set -euo pipefail
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-unit=xbox-snapback-filter.service
-runtime_dir="$HOME/.local/libexec/xbox-snapback-filter"
+unit=snub.service
+runtime_dir="$HOME/.local/libexec/snub"
 unit_dir="$HOME/.config/systemd/user"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/snub"
+rule_path=/etc/udev/rules.d/72-snub.rules
 controller_uniq=${CONTROLLER_UNIQ:-}
 generated_rule=
 
@@ -32,35 +34,48 @@ if [[ -z "$controller_uniq" ]]; then
 fi
 
 controller_uniq=${controller_uniq,,}
-if [[ ! "$controller_uniq" =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]]; then
-    echo "Could not detect the controller's Bluetooth address." >&2
-    echo "Connect the Elite Series 2 over Bluetooth, then run this installer again." >&2
+if [[ -n "$controller_uniq" &&
+      ! "$controller_uniq" =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]]; then
+    echo "Invalid Bluetooth address: $controller_uniq" >&2
     exit 1
 fi
 
 make -C "$project_dir" test all
 
-generated_rule=$(mktemp /tmp/xbox-snapback-filter.XXXXXX.rules)
-sed "s/@CONTROLLER_UNIQ@/$controller_uniq/g" \
-    "$project_dir/70-xbox-snapback-filter.rules.in" > "$generated_rule"
+generated_rule=$(mktemp)
+if [[ -n "$controller_uniq" ]]; then
+    sed "s/@CONTROLLER_UNIQ@/$controller_uniq/g" \
+        "$project_dir/72-snub.rules.in" > "$generated_rule"
+else
+    # Without an address, keep everything before the Bluetooth access rule.
+    sed '/^# Over Bluetooth/,$d' "$project_dir/72-snub.rules.in" \
+        > "$generated_rule"
+fi
 
-echo "Installing the controller-specific udev rule (sudo required)..."
-sudo install -m 0644 "$generated_rule" \
-    "/etc/udev/rules.d/70-xbox-snapback-filter.rules"
+echo "Installing the udev rule (sudo required)..."
+sudo install -m 0644 "$generated_rule" "$rule_path"
 sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput
 
 install -d -m 0755 "$runtime_dir" "$unit_dir"
-install -m 0755 "$project_dir/xbox-snapback-filter" \
-    "$runtime_dir/xbox-snapback-filter"
+install -m 0755 "$project_dir/snub" "$runtime_dir/snub"
 install -m 0755 "$project_dir/run.sh" "$runtime_dir/run.sh"
+if [[ ! -e "$config_dir/snub.conf" ]]; then
+    install -d -m 0755 "$config_dir"
+    install -m 0644 "$project_dir/snub.conf" "$config_dir/snub.conf"
+fi
 
-systemctl --user disable --now "$unit" >/dev/null 2>&1 || true
-rm -f -- "$unit_dir/$unit"
 install -m 0644 "$project_dir/$unit" "$unit_dir/$unit"
 systemctl --user daemon-reload
-systemctl --user enable --now "$unit"
+systemctl --user enable "$unit"
+systemctl --user restart "$unit"
 make -C "$project_dir" clean
 
 echo
-echo "Installed and enabled $unit."
-echo "Turn the controller off and on once so the new device rule takes effect."
+echo "Installed and started $unit. Settings: $config_dir/snub.conf"
+if [[ -n "$controller_uniq" ]]; then
+    echo "Turn the controller off and on once so the new udev rule applies."
+else
+    echo "No Bluetooth controller was found, so only USB is set up. To add"
+    echo "Bluetooth, connect the controller over Bluetooth and run this again."
+fi

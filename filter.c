@@ -33,13 +33,61 @@ static struct filter_result emit_if_changed(struct axis_filter *filter,
     return result;
 }
 
+void filter_config_defaults(struct filter_config *config)
+{
+    config->deadzone_percent = 6.0;
+    config->strong_percent = 70.0;
+    config->crossing_percent = 25.0;
+    config->commit_percent = 80.0;
+    config->gate_ms = 13.0;
+    config->crossing_window_ms = 24.0;
+    config->neutral_reset_ms = 50.0;
+    config->snap_partial_ms = 35.0;
+    config->snap_hard_ms = 120.0;
+}
+
+static bool in_range(double value, double minimum, double maximum)
+{
+    return value >= minimum && value <= maximum;
+}
+
+const char *filter_config_validate(const struct filter_config *config)
+{
+    if (!in_range(config->deadzone_percent, 0.0, 99.0)) {
+        return "deadzone must be between 0 and 99 percent";
+    }
+    if (!in_range(config->strong_percent, 1.0, 100.0) ||
+        !in_range(config->crossing_percent, 1.0, 100.0) ||
+        !in_range(config->commit_percent, 1.0, 100.0)) {
+        return "strong, crossing and commit must be between 1 and 100 percent";
+    }
+    if (config->strong_percent <= config->deadzone_percent ||
+        config->commit_percent <= config->deadzone_percent) {
+        return "strong and commit must be larger than the deadzone";
+    }
+    if (!in_range(config->gate_ms, 0.0, 1000.0) ||
+        !in_range(config->crossing_window_ms, 0.0, 1000.0) ||
+        !in_range(config->neutral_reset_ms, 0.0, 1000.0) ||
+        !in_range(config->snap_partial_ms, 0.0, 1000.0) ||
+        !in_range(config->snap_hard_ms, 0.0, 1000.0)) {
+        return "times must be between 0 and 1000 ms";
+    }
+    if (config->snap_partial_ms > config->snap_hard_ms) {
+        return "snap partial time must not exceed snap hard time";
+    }
+    return NULL;
+}
+
+static uint64_t ms_to_ns(double ms)
+{
+    return (uint64_t)(ms * 1000000.0);
+}
+
 void axis_filter_init(struct axis_filter *filter,
                       int minimum,
                       int maximum,
                       int initial_value,
-                      double deadzone_percent,
-                      double strong_percent,
-                      double gate_ms)
+                      const struct filter_config *config)
 {
     memset(filter, 0, sizeof(*filter));
     filter->minimum = minimum;
@@ -50,13 +98,16 @@ void axis_filter_init(struct axis_filter *filter,
     int positive_radius = maximum - filter->center;
     int radius = negative_radius > positive_radius ? negative_radius : positive_radius;
 
-    filter->deadzone = (int)(radius * deadzone_percent / 100.0);
-    filter->strong_threshold = (int)(radius * strong_percent / 100.0);
-    filter->crossing_delta_threshold = (int)(radius * 25.0 / 100.0);
-    filter->snap_commit_threshold = (int)(radius * 80.0 / 100.0);
-    filter->gate_ns = (uint64_t)(gate_ms * 1000000.0);
-    filter->crossing_window_ns = 24000000ULL;
-    filter->neutral_reset_ns = 50000000ULL;
+    filter->deadzone = (int)(radius * config->deadzone_percent / 100.0);
+    filter->strong_threshold = (int)(radius * config->strong_percent / 100.0);
+    filter->crossing_delta_threshold =
+        (int)(radius * config->crossing_percent / 100.0);
+    filter->snap_commit_threshold = (int)(radius * config->commit_percent / 100.0);
+    filter->gate_ns = ms_to_ns(config->gate_ms);
+    filter->crossing_window_ns = ms_to_ns(config->crossing_window_ms);
+    filter->neutral_reset_ns = ms_to_ns(config->neutral_reset_ms);
+    filter->snap_partial_ns = ms_to_ns(config->snap_partial_ms);
+    filter->snap_hard_ns = ms_to_ns(config->snap_hard_ms);
 
     filter->raw_value = initial_value;
     filter->last_input_value = initial_value;
@@ -111,8 +162,11 @@ struct filter_result axis_filter_input(struct axis_filter *filter,
             return result;
         }
 
-        if (sign == filter->snap_candidate_sign &&
-            magnitude >= filter->snap_commit_threshold) {
+        /*
+         * A rebound never reaches the commit threshold, so a large deflection
+         * in either direction is deliberate and passes immediately.
+         */
+        if (magnitude >= filter->snap_commit_threshold) {
             filter->snap_active = false;
             filter->snap_committed++;
             filter->stable_sign = sign;
@@ -166,8 +220,8 @@ struct filter_result axis_filter_input(struct axis_filter *filter,
         filter->snap_oscillated = false;
         filter->snap_origin_sign = filter->stable_sign;
         filter->snap_candidate_sign = sign;
-        filter->snap_partial_deadline_ns = now_ns + 35000000ULL;
-        filter->snap_hard_deadline_ns = now_ns + 120000000ULL;
+        filter->snap_partial_deadline_ns = now_ns + filter->snap_partial_ns;
+        filter->snap_hard_deadline_ns = now_ns + filter->snap_hard_ns;
         filter->snap_started++;
 
         struct filter_result result = emit_if_changed(filter, filter->center);

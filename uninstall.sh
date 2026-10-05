@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-unit=xbox-snapback-filter.service
-runtime_dir="$HOME/.local/libexec/xbox-snapback-filter"
-unit_path="$HOME/.config/systemd/user/$unit"
+unit=snub.service
+runtime_dir="$HOME/.local/libexec/snub"
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/snub/snub.conf"
 
 systemctl --user disable --now "$unit" 2>/dev/null || true
-rm -f -- "$unit_path"
+rm -f -- "$HOME/.config/systemd/user/$unit"
 systemctl --user daemon-reload
 
-rm -f -- "$runtime_dir/run.sh" "$runtime_dir/xbox-snapback-filter"
+rm -f -- "$runtime_dir/run.sh" "$runtime_dir/snub"
 rmdir -- "$runtime_dir" 2>/dev/null || true
 
-echo "Removing the controller-specific udev rule (sudo required)..."
-sudo rm -f "/etc/udev/rules.d/70-xbox-snapback-filter.rules"
+echo "Removing the udev rule (sudo required)..."
+sudo rm -f /etc/udev/rules.d/72-snub.rules
 sudo udevadm control --reload-rules
 
-echo "Uninstalled. Turn the controller off and on to restore normal device access."
+echo "Uninstalled. Turn the controller off and on to restore normal access."
+if [[ -e "$config_file" ]]; then
+    echo "Your settings were kept in $config_file."
+fi

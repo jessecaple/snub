@@ -4,16 +4,18 @@ CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror
 
 .PHONY: all clean test
 
-all: xbox-snapback-filter
+all: snub
 
-xbox-snapback-filter: main.o filter.o
-	$(CC) $(CFLAGS) -o $@ $^
+snub: main.o filter.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 test-filter: test_filter.o filter.o
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+main.o filter.o test_filter.o: filter.h
 
 test: test-filter
 	./test-filter
 
 clean:
-	rm -f xbox-snapback-filter test-filter *.o
+	rm -f snub test-filter *.o
